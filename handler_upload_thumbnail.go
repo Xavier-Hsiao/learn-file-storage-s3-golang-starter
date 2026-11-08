@@ -1,10 +1,10 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -32,6 +32,16 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
+	video, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get video", err)
+		return
+	}
+	if video.UserID != userID {
+		respondWithError(w, http.StatusUnauthorized, "Not authorized to update this video", err)
+		return
+	}
+
 	const maxMemory = 10 << 20 // 10MB
 	r.ParseMultipartForm(maxMemory)
 
@@ -48,32 +58,23 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	dat, err := io.ReadAll(file)
+	assetPath := getAssetPath(videoIDString, mediaType)
+	assetDiskPath := cfg.getAssetDiskPath(assetPath)
+
+	dst, err := os.Create(assetDiskPath)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't read image file", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create file on server", err)
+		return
+	}
+	defer dst.Close()
+
+	if _, err = io.Copy(dst, file); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't save file", err)
 		return
 	}
 
-	video, err := cfg.db.GetVideo(videoID)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't get video", err)
-		return
-	}
-	if video.UserID != userID {
-		respondWithError(w, http.StatusUnauthorized, "Not authorized to update this video", err)
-		return
-	}
-
-	// videoThumbnails[videoID] = thumbnail{
-	// 	data:      dat,
-	// 	mediaType: mediaType,
-	// }
-
-	// 將二進位的影片原始檔案轉換成 base64 字串存入資料庫
-	videoString := base64.StdEncoding.EncodeToString(dat)
-	dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, videoString)
-
-	video.ThumbnailURL = &dataURL
+	url := cfg.getAssetURL(assetPath)
+	video.ThumbnailURL = &url
 
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
