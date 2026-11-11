@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,9 +24,14 @@ func getExtensionFromMediaType(mediaType string) string {
 	return "." + parts[1]
 }
 
-func getAssetPath(videoIDString, mediaType string) string {
+func getAssetPath(mediaType string) string {
 	extension := getExtensionFromMediaType(mediaType)
-	return fmt.Sprintf("%s%s", videoIDString, extension)
+
+	key := make([]byte, 32)
+	rand.Read(key)
+	fileName := base64.RawURLEncoding.EncodeToString(key)
+
+	return fmt.Sprintf("%s%s", fileName, extension)
 }
 
 func (cfg apiConfig) getAssetDiskPath(assetPath string) string {
